@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.idea/
+.vscode/
+*.log
+*.tmp
+
+# OS cruft
+.DS_Store
+
+# Claude / agent working notes — internal, not for the public repo
+CLAUDE.md
