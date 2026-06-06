@@ -29,6 +29,7 @@ Drop the node on the canvas, point it at a folder, wire **image** (and **mask** 
 The usual way to run a workflow over a folder of images is to swap the file in **Load Image** by hand between every run, or to build a batch-loader contraption that fires everything at once and floods your VRAM. This sits in the middle: it's a normal single-image loader that just **remembers where it got to** and steps forward each time you press Queue.
 
 - **One image per Queue.** Process a folder at your own pace — tweak settings between runs, watch each result, stop whenever.
+- **📁 Browse for folder** — a built-in folder picker (browses the ComfyUI server's filesystem) so you don't have to hand-type paths. Or just paste a path.
 - **Natural sort order.** `frame2.png` comes before `frame10.png`, the way you'd expect — not `frame10` before `frame2`.
 - **⏮ Reset to start** rewinds to the first image. **‹ Prev / Next ›** step the position without queuing. **↻ Rescan** re-reads the folder after you add or remove files.
 - **Pick your filetype** — `png`, `jpg`, `jpeg`, `webp`, `bmp`, `gif`, `tiff`, or `all` for every supported type at once.
@@ -49,7 +50,7 @@ Restart ComfyUI. No extra Python dependencies — it uses Pillow and torch, whic
 ## Quick start
 
 1. Add **Sequential Image Loader (folder)** from the `image` category.
-2. Paste a folder path into **directory** (e.g. `C:\frames\` or `/home/me/frames`).
+2. Set the folder: click **📁 Browse for folder…** and pick one, or paste a path into **directory** (e.g. `C:\frames\` or `/home/me/frames`).
 3. Pick a **filetype** (`png` by default; `all` grabs every supported type).
 4. (Optional) tick **include_subfolders** to walk subfolders too, or flip **reverse** to go last→first.
 5. Wire **image** (and **mask**) into your workflow.
@@ -61,7 +62,8 @@ The status line shows `Next: N / TOTAL · filename`. Hit **⏮ Reset to start** 
 
 | Control | What it does |
 |---|---|
-| **directory** | Folder to scan. Paste an absolute path. |
+| **directory** | Folder to scan. Paste an absolute path, or use **📁 Browse**. |
+| **📁 Browse for folder…** | Server-side folder picker — navigate the filesystem and pick a folder (shows how many matching files each folder holds). |
 | **filetype** | `png` (default), `jpg`, `jpeg`, `webp`, `bmp`, `gif`, `tiff`, or `all`. `jpg`/`jpeg` both match `.jpg` and `.jpeg`; `tiff` matches `.tif`/`.tiff`. |
 | **include_subfolders** | Walk subfolders recursively (sorted by path relative to the folder). |
 | **reverse** | Run the sequence last→first instead of first→last. |

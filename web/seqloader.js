@@ -96,8 +96,13 @@ function updateStatus(node) {
     const idx = findWidget(node, "index")?.value | 0;
 
     if (total === 0) {
-        el.innerHTML = `<span style="color:#e7a">No PNGs found.</span> `
-            + `<span style="color:#888">Paste a folder path above.</span>`;
+        const ft = findWidget(node, "filetype")?.value || "png";
+        const label = ft === "all" ? "image" : ft.toUpperCase();
+        const dir = (findWidget(node, "directory")?.value || "").trim();
+        const hint = dir ? "Check the path / filetype, or Rescan."
+                         : "Browse or paste a folder path above.";
+        el.innerHTML = `<span style="color:#e7a">No ${label} files found.</span> `
+            + `<span style="color:#888">${hint}</span>`;
         return;
     }
     const pos = ((idx % total) + total) % total; // wrap, handle negatives
@@ -131,6 +136,14 @@ function attachUI(node) {
     container.appendChild(status);
     node._seqStatusEl = status;
 
+    // Browse button (primary way to set the folder). Full width above the
+    // navigation row.
+    const browseBtn = makeButton("📁 Browse for folder…", "browse", () => {
+        openFolderPicker(node);
+    });
+    browseBtn.style.flex = "1 1 100%";
+    container.appendChild(browseBtn);
+
     // Button row.
     const row = document.createElement("div");
     row.style.cssText = "display:flex; flex-direction:row; flex-wrap:wrap; gap:5px;";
@@ -156,7 +169,7 @@ function attachUI(node) {
     node.addDOMWidget("seqloader_ui", "seqloader_panel", container, {
         serialize: false,
         hideOnZoom: false,
-        getMinHeight: () => 96,
+        getMinHeight: () => 124,
     });
 
     // Re-scan whenever the folder path, subfolder toggle, filetype, or
@@ -179,6 +192,7 @@ function makeButton(label, kind, onClick) {
     const themes = {
         reset: { fg: "#ffe0d0", bg: "rgba(70,50,50,0.95)", border: "rgba(220,140,100,0.9)" },
         scan: { fg: "#d2f3e2", bg: "rgba(48,66,60,0.95)", border: "rgba(110,200,160,0.9)" },
+        browse: { fg: "#dde7ff", bg: "rgba(48,58,78,0.95)", border: "rgba(120,160,230,0.9)" },
         neutral: { fg: "#ccc", bg: "#2a2a2a", border: "#555" },
     };
     const th = themes[kind] || themes.neutral;
@@ -195,6 +209,161 @@ function makeButton(label, kind, onClick) {
         onClick();
     });
     return btn;
+}
+
+// --- Server-side folder picker. Browsers can't hand back a real absolute
+//     path, and the images live on the ComfyUI server anyway, so we browse
+//     the server's filesystem via /seqloader/browse and write the chosen
+//     path into the `directory` widget.
+function openFolderPicker(node) {
+    const dirW = findWidget(node, "directory");
+    const filetype = findWidget(node, "filetype")?.value || "png";
+
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText =
+        "position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.55); "
+        + "display:flex; align-items:center; justify-content:center;";
+
+    const modal = document.createElement("div");
+    modal.style.cssText =
+        "width:min(560px, 92vw); max-height:80vh; display:flex; "
+        + "flex-direction:column; background:#232323; color:#ddd; "
+        + "border:1px solid #555; border-radius:8px; "
+        + "box-shadow:0 10px 40px rgba(0,0,0,0.6); font-size:13px; "
+        + "font-family:sans-serif; overflow:hidden;";
+    backdrop.appendChild(modal);
+
+    // Header.
+    const header = document.createElement("div");
+    header.style.cssText =
+        "padding:10px 12px; border-bottom:1px solid #444; font-weight:bold; "
+        + "background:#1c1c1c;";
+    header.textContent = "📁 Select image folder";
+    modal.appendChild(header);
+
+    // Path input + Up button.
+    const pathRow = document.createElement("div");
+    pathRow.style.cssText = "display:flex; gap:6px; padding:10px 12px 6px;";
+    const pathInput = document.createElement("input");
+    pathInput.type = "text";
+    pathInput.placeholder = "Type or paste a path, then Enter";
+    pathInput.style.cssText =
+        "flex:1 1 auto; min-width:0; background:#141414; color:#ddd; "
+        + "border:1px solid #555; border-radius:4px; padding:5px 8px; font-size:12px;";
+    const upBtn = makeButton("⬆ Up", "neutral", () => navigate(state.parent ?? ""));
+    upBtn.style.flex = "0 0 auto";
+    pathRow.appendChild(pathInput);
+    pathRow.appendChild(upBtn);
+    modal.appendChild(pathRow);
+
+    // Folder list.
+    const listWrap = document.createElement("div");
+    listWrap.style.cssText =
+        "flex:1 1 auto; overflow-y:auto; margin:4px 12px; padding:4px; "
+        + "background:#181818; border:1px solid #3a3a3a; border-radius:4px; "
+        + "min-height:160px;";
+    modal.appendChild(listWrap);
+
+    // Footer.
+    const footer = document.createElement("div");
+    footer.style.cssText =
+        "display:flex; align-items:center; gap:8px; padding:10px 12px; "
+        + "border-top:1px solid #444; background:#1c1c1c;";
+    const countEl = document.createElement("span");
+    countEl.style.cssText = "flex:1 1 auto; font-size:12px; color:#9cf;";
+    const useBtn = makeButton("✓ Use this folder", "scan", () => {
+        const chosen = (state.cwd || pathInput.value || "").trim();
+        if (!chosen) return;
+        setWidget(dirW, chosen);
+        refreshFileList(node);
+        close();
+    });
+    useBtn.style.flex = "0 0 auto";
+    const cancelBtn = makeButton("Cancel", "neutral", () => close());
+    cancelBtn.style.flex = "0 0 auto";
+    footer.appendChild(countEl);
+    footer.appendChild(cancelBtn);
+    footer.appendChild(useBtn);
+    modal.appendChild(footer);
+
+    const state = { cwd: "", parent: null };
+
+    function close() {
+        document.removeEventListener("keydown", onKey, true);
+        backdrop.remove();
+    }
+    function onKey(e) {
+        if (e.key === "Escape") { e.stopPropagation(); close(); }
+    }
+    document.addEventListener("keydown", onKey, true);
+    backdrop.addEventListener("mousedown", (e) => {
+        if (e.target === backdrop) close();
+    });
+
+    function renderList(data) {
+        listWrap.innerHTML = "";
+        const dirs = data.dirs || [];
+        if (data.is_roots) {
+            const hint = document.createElement("div");
+            hint.style.cssText = "padding:6px 8px; color:#888; font-size:11px;";
+            hint.textContent = "Drives / roots — click to open:";
+            listWrap.appendChild(hint);
+        }
+        if (dirs.length === 0 && !data.is_roots) {
+            const empty = document.createElement("div");
+            empty.style.cssText = "padding:8px; color:#888;";
+            empty.textContent = "(no subfolders here)";
+            listWrap.appendChild(empty);
+        }
+        for (const d of dirs) {
+            const item = document.createElement("div");
+            item.style.cssText =
+                "padding:5px 9px; border-radius:3px; cursor:pointer; "
+                + "white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+            item.textContent = "📁 " + d.name;
+            item.title = d.path;
+            item.addEventListener("mouseenter", () => { item.style.background = "#2e3a52"; });
+            item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
+            item.addEventListener("click", () => navigate(d.path));
+            listWrap.appendChild(item);
+        }
+    }
+
+    async function navigate(path) {
+        try {
+            const res = await api.fetchApi("/seqloader/browse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: path || "", filetype }),
+            });
+            const data = await res.json();
+            state.cwd = data.cwd || "";
+            state.parent = data.parent;
+            pathInput.value = state.cwd;
+            upBtn.disabled = data.is_roots;
+            upBtn.style.opacity = data.is_roots ? "0.5" : "1";
+            const label = filetype === "all" ? "image" : filetype.toUpperCase();
+            countEl.textContent = state.cwd
+                ? `${data.image_count} ${label} file(s) in this folder`
+                : "";
+            useBtn.style.opacity = state.cwd ? "1" : "0.5";
+            renderList(data);
+        } catch (e) {
+            countEl.textContent = "Could not read that path.";
+        }
+    }
+
+    pathInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            navigate(pathInput.value.trim());
+        }
+    });
+
+    document.body.appendChild(backdrop);
+    // Start at the currently-set folder (or its parent if it has no subdirs),
+    // falling back to the roots list.
+    navigate((dirW?.value || "").trim());
 }
 
 app.registerExtension({
@@ -215,7 +384,7 @@ app.registerExtension({
             // row. computeSize() floors to the real content height (the
             // hidden index widget claims none); then enforce our own minimum.
             const fit = this.computeSize ? this.computeSize() : [0, 0];
-            const min = [320, Math.max(330, fit[1])];
+            const min = [320, Math.max(360, fit[1])];
             const w = Math.max(this.size[0], min[0]);
             const h = Math.max(this.size[1], min[1]);
             if (typeof this.setSize === "function") this.setSize([w, h]);

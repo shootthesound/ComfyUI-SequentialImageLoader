@@ -176,7 +176,61 @@ class SequentialImageLoader:
         }
 
 
-# --- Listing route (UI progress display) ----------------------------------
+# --- Directory browsing (server-side folder picker) -----------------------
+
+def _list_roots():
+    """Top-level entries: drive letters on Windows, '/' + home elsewhere."""
+    roots = []
+    if os.name == "nt":
+        import string
+        for c in string.ascii_uppercase:
+            d = f"{c}:\\"
+            if os.path.exists(d):
+                roots.append({"name": d, "path": d})
+    else:
+        roots.append({"name": "/", "path": "/"})
+    home = os.path.expanduser("~")
+    if os.path.isdir(home):
+        roots.append({"name": f"~  ({home})", "path": home})
+    return roots
+
+
+def browse_dir(path, filetype="png"):
+    """Resolve a folder for the picker UI.
+
+    Returns the current path, its parent ("" => the roots list), the
+    immediate subdirectories, and how many matching images live here.
+    An empty/invalid path returns the roots listing.
+    """
+    path = (path or "").strip().strip('"').strip("'")
+    if not path or not os.path.isdir(path):
+        return {"cwd": "", "parent": None, "is_roots": True,
+                "dirs": _list_roots(), "image_count": 0}
+
+    norm = os.path.normpath(path)
+    parent = os.path.dirname(norm)
+    if parent == norm:          # at a drive root -> "up" goes to the roots list
+        parent = ""
+
+    dirs = []
+    try:
+        for name in os.listdir(norm):
+            full = os.path.join(norm, name)
+            try:
+                if os.path.isdir(full):
+                    dirs.append({"name": name, "path": full})
+            except OSError:
+                continue
+    except OSError:
+        pass
+    dirs.sort(key=lambda d: _natural_key(d["name"]))
+
+    image_count = len(list_images(norm, False, filetype, False))
+    return {"cwd": norm, "parent": parent, "is_roots": False,
+            "dirs": dirs, "image_count": image_count}
+
+
+# --- Server routes (UI progress display + folder picker) ------------------
 
 try:
     from server import PromptServer
@@ -197,8 +251,21 @@ try:
             "count": len(files),
             "files": [os.path.basename(p) for p in files],
         })
+
+    @PromptServer.instance.routes.post("/seqloader/browse")
+    async def _seqloader_browse(request):
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        path = (data or {}).get("path", "")
+        filetype = (data or {}).get("filetype", "png")
+        try:
+            return web.json_response(browse_dir(path, filetype))
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 except Exception as _e:  # pragma: no cover - server optional
-    print(f"[Sequential Image Loader] listing route not registered: {_e}")
+    print(f"[Sequential Image Loader] routes not registered: {_e}")
 
 
 NODE_CLASS_MAPPINGS = {"SequentialImageLoader": SequentialImageLoader}
