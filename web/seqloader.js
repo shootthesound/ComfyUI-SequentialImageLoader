@@ -124,7 +124,7 @@ function attachUI(node) {
 
     const container = document.createElement("div");
     container.style.cssText =
-        "display:flex; flex-direction:column; gap:6px; padding:6px 6px 4px; "
+        "display:flex; flex-direction:column; gap:6px; padding:6px; "
         + "box-sizing:border-box; width:100%;";
 
     // Status line.
@@ -141,7 +141,7 @@ function attachUI(node) {
     const browseBtn = makeButton("📁 Browse for folder…", "browse", () => {
         openFolderPicker(node);
     });
-    browseBtn.style.flex = "1 1 100%";
+    // The column container stretches children to full width by default.
     container.appendChild(browseBtn);
 
     // Button row.
@@ -166,11 +166,27 @@ function attachUI(node) {
     }));
     container.appendChild(row);
 
-    node.addDOMWidget("seqloader_ui", "seqloader_panel", container, {
+    // Attach as a DOM widget so LiteGraph manages its layout. The panel is
+    // three fixed rows (status + browse + button row) at ~28px each with two
+    // 6px gaps and 6px top+bottom padding — a constant floor of 112 fits the
+    // content without clipping or leaving a gap.
+    const widget = node.addDOMWidget("seqloader_ui", "seqloader_panel", container, {
         serialize: false,
         hideOnZoom: false,
-        getMinHeight: () => 124,
+        getMinHeight: () => 112,
     });
+
+    // Make the panel fill the node's full width: define `width` as a getter
+    // that always returns the live node width, so LiteGraph's wrapper spans
+    // the whole node instead of pinning to a narrow default.
+    try {
+        Object.defineProperty(widget, "width", {
+            configurable: true,
+            enumerable: true,
+            get() { return node.size ? node.size[0] : undefined; },
+            set(_v) { /* ignore — width is derived from the node */ },
+        });
+    } catch (e) { /* ignore */ }
 
     // Re-scan whenever the folder path, subfolder toggle, filetype, or
     // direction changes.
@@ -380,18 +396,14 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function () {
             origOnNodeCreated?.apply(this, arguments);
             attachUI(this);
-            // Grow to fit the directory/subfolder widgets + status + button
-            // row. computeSize() floors to the real content height (the
-            // hidden index widget claims none); then enforce our own minimum.
-            const fit = this.computeSize ? this.computeSize() : [0, 0];
-            const min = [320, Math.max(360, fit[1])];
-            const w = Math.max(this.size[0], min[0]);
-            const h = Math.max(this.size[1], min[1]);
-            if (typeof this.setSize === "function") this.setSize([w, h]);
-            else { this.size[0] = w; this.size[1] = h; }
+            // Enforce a sensible minimum node size once. Width ~320; height
+            // accommodates the standard widgets plus the DOM panel.
+            const min = [320, 370];
+            if (this.size[0] < min[0]) this.size[0] = min[0];
+            if (this.size[1] < min[1]) this.size[1] = min[1];
         };
 
-        // Re-sync after a saved workflow restores widget values.
+        // Re-sync the file list after a saved workflow restores widget values.
         const origOnConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function (info) {
             origOnConfigure?.apply(this, arguments);

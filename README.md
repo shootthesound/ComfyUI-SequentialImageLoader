@@ -4,6 +4,8 @@
 
 <a href="https://buymeacoffee.com/lorasandlenses"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me A Coffee"></a>
 
+![Sequential Image Loader node](screenshots/node.png)
+
 ## What it does
 
 ```
