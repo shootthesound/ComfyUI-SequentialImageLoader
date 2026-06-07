@@ -1,0 +1,15 @@
+[project]
+name = "sequential-image-loader"
+description = "Load a folder of images one at a time, in order — a fresh image on every Queue press. A paced, single-image folder sequencer for batch-processing frames or photos through any ComfyUI workflow."
+version = "1.0.0"
+license = { file = "LICENSE" }
+readme = "README.md"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/shootthesound/ComfyUI-SequentialImageLoader"
+
+[tool.comfy]
+PublisherId = "shootthesound"
+DisplayName = "Sequential Image Loader"
+includes = []
