@@ -13,3 +13,7 @@ __pycache__/
 
 # Claude / agent working notes — internal, not for the public repo
 CLAUDE.md
+memory/
+
+# Build / packaging artifacts
+*.zip
