@@ -37,6 +37,7 @@ The usual way to run a workflow over a folder of images is to swap the file in *
 - **Pick your filetype** — `png`, `jpg`, `jpeg`, `webp`, `bmp`, `gif`, `tiff`, or `all` for every supported type at once.
 - **Reverse** runs the sequence last→first.
 - **Live status line** shows exactly where you are: `Next: 3 / 240 · frame_003.png`.
+- **Thumbnail previews** of the current and next image at the bottom of the node, so you can see what's coming before you Queue.
 
 ## Install
 
@@ -59,6 +60,8 @@ Restart ComfyUI. No extra Python dependencies — it uses Pillow and torch, whic
 6. **Queue.** It loads the first image. Queue again → the next. And so on.
 
 The status line shows `Next: N / TOTAL · filename`. Hit **⏮ Reset to start** any time to begin again from the first file.
+
+At the bottom of the node, two thumbnails show what's coming: **Next** (the image that loads on your next Queue) and **Next + 1** (the one after it, looping back to the start at the end).
 
 ## Controls
 

@@ -1,0 +1,1 @@
+- [Publishing ComfyUI nodes](publishing-comfyui-nodes.md) — two-target publish flow: Comfy Registry (comfy node publish) + legacy Manager PR (Comfy-Org/ComfyUI-Manager)

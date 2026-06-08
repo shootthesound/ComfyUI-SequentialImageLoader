@@ -8,6 +8,7 @@ resolves index → file → tensors and exposes a listing route the UI uses
 to show progress.
 """
 
+import io
 import os
 
 import numpy as np
@@ -250,7 +251,25 @@ try:
         return web.json_response({
             "count": len(files),
             "files": [os.path.basename(p) for p in files],
+            "paths": files,
         })
+
+    @PromptServer.instance.routes.get("/seqloader/thumb")
+    async def _seqloader_thumb(request):
+        path = (request.query.get("path", "") or "").strip()
+        if (not path or not os.path.isfile(path)
+                or not path.lower().endswith(_ALL_EXTS)):
+            return web.Response(status=404)
+        try:
+            img = Image.open(path)
+            img = ImageOps.exif_transpose(img)
+            img = img.convert("RGB")
+            img.thumbnail((256, 256))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            return web.Response(body=buf.getvalue(), content_type="image/jpeg")
+        except Exception as e:
+            return web.Response(status=500, text=str(e))
 
     @PromptServer.instance.routes.post("/seqloader/browse")
     async def _seqloader_browse(request):

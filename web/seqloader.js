@@ -82,13 +82,67 @@ async function refreshFileList(node) {
         });
         const data = await res.json();
         node._seqFiles = Array.isArray(data.files) ? data.files : [];
+        node._seqPaths = Array.isArray(data.paths) ? data.paths : [];
     } catch (e) {
         node._seqFiles = [];
+        node._seqPaths = [];
     }
     updateStatus(node);
 }
 
+// --- Thumbnail previews of the current + next image. Fetched from the
+//     server (the files live there) as blobs so base-path / auth are
+//     handled by api.fetchApi. Skips refetching when the path is unchanged.
+async function setThumb(img, path) {
+    if (!img) return;
+    if (!path) {
+        img._path = "";
+        img.removeAttribute("src");
+        return;
+    }
+    if (img._path === path) return;
+    img._path = path;
+    try {
+        const res = await api.fetchApi(
+            "/seqloader/thumb?path=" + encodeURIComponent(path));
+        if (!res.ok) { img.removeAttribute("src"); return; }
+        const blob = await res.blob();
+        if (img._path !== path) return;   // a newer request superseded this one
+        if (img._url) URL.revokeObjectURL(img._url);
+        img._url = URL.createObjectURL(blob);
+        img.src = img._url;
+    } catch (e) {
+        img.removeAttribute("src");
+    }
+}
+
+function updatePreviews(node) {
+    const paths = node._seqPaths || [];
+    const total = paths.length;
+    const cur = node._seqCurImg, nxt = node._seqNextImg;
+    if (total === 0) {
+        setThumb(cur, "");
+        setThumb(nxt, "");
+        if (node._seqCurLab) node._seqCurLab.textContent = "Next";
+        if (node._seqNextLab) node._seqNextLab.textContent = "Next + 1";
+        return;
+    }
+    const idx = findWidget(node, "index")?.value | 0;
+    const pos = ((idx % total) + total) % total;
+    const nextPos = (pos + 1) % total;
+    setThumb(cur, paths[pos]);
+    setThumb(nxt, paths[nextPos]);
+    const baseName = (p) => (p || "").split(/[\\/]/).pop();
+    if (node._seqCurImg) node._seqCurImg.title = baseName(paths[pos]);
+    if (node._seqNextImg) node._seqNextImg.title = baseName(paths[nextPos]);
+    if (node._seqCurLab) node._seqCurLab.textContent = "Next";
+    if (node._seqNextLab) {
+        node._seqNextLab.textContent = (total === 1) ? "Next + 1 (loops)" : "Next + 1";
+    }
+}
+
 function updateStatus(node) {
+    updatePreviews(node);
     const el = node._seqStatusEl;
     if (!el) return;
     const files = node._seqFiles || [];
@@ -166,14 +220,44 @@ function attachUI(node) {
     }));
     container.appendChild(row);
 
+    // Image previews of the current + next file, at the bottom.
+    const preview = document.createElement("div");
+    preview.style.cssText = "display:flex; gap:6px; margin-top:2px;";
+    const makeCell = (labelText) => {
+        const cell = document.createElement("div");
+        cell.style.cssText =
+            "flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px;";
+        const lab = document.createElement("div");
+        lab.style.cssText =
+            "font-size:10px; color:#9cf; text-align:center; white-space:nowrap; "
+            + "overflow:hidden; text-overflow:ellipsis;";
+        lab.textContent = labelText;
+        const img = document.createElement("img");
+        img.style.cssText =
+            "width:100%; height:96px; object-fit:contain; background:#111; "
+            + "border:1px solid #3a3a3a; border-radius:4px;";
+        cell.appendChild(lab);
+        cell.appendChild(img);
+        return { cell, lab, img };
+    };
+    const curCell = makeCell("Next");
+    const nextCell = makeCell("Next + 1");
+    preview.appendChild(curCell.cell);
+    preview.appendChild(nextCell.cell);
+    container.appendChild(preview);
+    node._seqCurImg = curCell.img;
+    node._seqNextImg = nextCell.img;
+    node._seqCurLab = curCell.lab;
+    node._seqNextLab = nextCell.lab;
+
     // Attach as a DOM widget so LiteGraph manages its layout. The panel is
-    // three fixed rows (status + browse + button row) at ~28px each with two
-    // 6px gaps and 6px top+bottom padding — a constant floor of 112 fits the
+    // status + browse + button row (~28px each) plus a ~115px preview row
+    // (two 96px thumbnails with labels). A constant floor of 238 fits the
     // content without clipping or leaving a gap.
     const widget = node.addDOMWidget("seqloader_ui", "seqloader_panel", container, {
         serialize: false,
         hideOnZoom: false,
-        getMinHeight: () => 112,
+        getMinHeight: () => 238,
     });
 
     // Make the panel fill the node's full width: define `width` as a getter
@@ -398,7 +482,7 @@ app.registerExtension({
             attachUI(this);
             // Enforce a sensible minimum node size once. Width ~320; height
             // accommodates the standard widgets plus the DOM panel.
-            const min = [320, 370];
+            const min = [320, 500];
             if (this.size[0] < min[0]) this.size[0] = min[0];
             if (this.size[1] < min[1]) this.size[1] = min[1];
         };
