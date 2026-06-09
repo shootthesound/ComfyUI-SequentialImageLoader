@@ -34,10 +34,13 @@ The usual way to run a workflow over a folder of images is to swap the file in *
 - **📁 Browse for folder** — a built-in folder picker (browses the ComfyUI server's filesystem) so you don't have to hand-type paths. Or just paste a path.
 - **Natural sort order.** `frame2.png` comes before `frame10.png`, the way you'd expect — not `frame10` before `frame2`.
 - **⏮ Reset to start** rewinds to the first image. **‹ Prev / Next ›** step the position without queuing. **↻ Rescan** re-reads the folder after you add or remove files.
+- **Scrub bar** — the status box is draggable: click anywhere to jump to that point in the folder, or click-drag left/right to scrub. A fill shows how far through you are. Perfect for big folders where stepping one-by-one would take forever.
 - **Pick your filetype** — `png`, `jpg`, `jpeg`, `webp`, `bmp`, `gif`, `tiff`, or `all` for every supported type at once.
 - **Reverse** runs the sequence last→first.
+- **Hold (pause) on a frame** — ⏸ Hold last (the image you just got) or ⏸ Hold next (the upcoming one) freezes the sequence so every Queue re-emits that same frame. Handy for locking onto one image while you tweak the rest of the graph. Click **▶ Resume** to carry on where you left off.
+- **Remembers your last folder.** A freshly-added node pre-fills with the folder you last used, so you're not re-typing paths all day.
 - **Live status line** shows exactly where you are: `Next: 3 / 240 · frame_003.png`.
-- **Thumbnail previews** of the current and next image at the bottom of the node, so you can see what's coming before you Queue.
+- **Thumbnail previews** of the next two images (**Next** and **Next + 1**) at the bottom of the node, so you can see what's coming before you Queue.
 
 ## Install
 
@@ -59,7 +62,7 @@ Restart ComfyUI. No extra Python dependencies — it uses Pillow and torch, whic
 5. Wire **image** (and **mask**) into your workflow.
 6. **Queue.** It loads the first image. Queue again → the next. And so on.
 
-The status line shows `Next: N / TOTAL · filename`. Hit **⏮ Reset to start** any time to begin again from the first file.
+The status line shows `Next: N / TOTAL · filename` and doubles as a **scrub bar** — click it to jump anywhere in the folder, or click-drag to scrub. Hit **⏮ Reset to start** any time to begin again from the first file.
 
 At the bottom of the node, two thumbnails show what's coming: **Next** (the image that loads on your next Queue) and **Next + 1** (the one after it, looping back to the start at the end).
 
@@ -74,7 +77,12 @@ At the bottom of the node, two thumbnails show what's coming: **Next** (the imag
 | **reverse** | Run the sequence last→first instead of first→last. |
 | **⏮ Reset to start** | Rewind to the first image in the current order. |
 | **‹ Prev / Next ›** | Step the position back/forward **without** queuing. |
+| **Status / scrub bar** | Shows `Next: N / TOTAL · filename`. Click to jump anywhere in the folder, or click-drag left/right to scrub; the fill shows your position. |
+| **⏸ Hold last** | Freeze on the image you just loaded — every Queue re-emits it. Click **▶ Resume** to continue. |
+| **⏸ Hold next** | Freeze on the upcoming image — every Queue re-emits it. Click **▶ Resume** to continue. |
 | **↻ Rescan** | Re-read the folder (after adding/removing files). |
+
+While a hold is active, the other buttons grey out; **▶ Resume** restores the sequence from where it was about to go.
 
 ## Outputs
 
@@ -95,6 +103,7 @@ ComfyUI only re-runs a node when one of its inputs changes, so a hidden `index` 
 - **Position is per-session widget state.** It's stored on the node and saved with your workflow JSON, so reopening a graph resumes where you left off — but external tools that re-run the workflow headless start from whatever index was saved.
 - **One queue = one image.** This is a deliberately manual, paced loader. If you want every image processed in a single Queue, that's a different (batch) node.
 - **Changing filetype mid-run keeps the index number.** If the new type has fewer files it wraps via modulo — hit **Reset** after switching type to start cleanly from the first file of the new set.
+- **Last-folder memory is per-browser.** The remembered folder lives in the browser's localStorage, so it's per-machine/per-browser and only pre-fills *new* nodes — a node loaded from a saved workflow keeps its own saved path.
 
 ## Compatibility
 
