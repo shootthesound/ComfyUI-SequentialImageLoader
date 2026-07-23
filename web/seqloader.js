@@ -1,11 +1,13 @@
-// Sequential Image Loader — folder PNG sequencer UI.
+// Sequential Image Loader — folder image sequencer UI.
 //
-// Each node loads the *next* PNG from a folder on every Queue. A global
+// Each node loads the *next* image from a folder on every Queue. A global
 // app.queuePrompt hook advances the (hidden) `index` widget after each
 // queue, so the run that was just sent uses the current index and the
 // next queue picks up the following file. A "Reset to start" button
 // rewinds index to 0. A status line shows how far through the folder we
-// are, refreshed from the /seqloader/list route.
+// are, refreshed from the /seqloader/list route. "▶ Queue all" chains
+// runs automatically (one per image) and stops after the last file.
+// Thumbnails show Current (what the last run loaded) and Next (upcoming).
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
@@ -72,12 +74,16 @@ function installQueueHook() {
 // --- Listing: ask the server which PNGs are in the folder. Cached on the
 //     node as n._seqFiles so the status line can show the current name.
 async function refreshFileList(node) {
+    // Sequence number so a slow response can't clobber a newer one (e.g.
+    // rapid filetype toggles, or typing a path while a big folder scans).
+    const seq = node._seqListReq = (node._seqListReq || 0) + 1;
     const dir = (findWidget(node, "directory")?.value || "").trim();
     const sub = !!findWidget(node, "include_subfolders")?.value;
     const filetype = findWidget(node, "filetype")?.value || "png";
     const reverse = !!findWidget(node, "reverse")?.value;
     if (!dir) {
         node._seqFiles = [];
+        node._seqPaths = [];
         updateStatus(node);
         return;
     }
@@ -93,9 +99,11 @@ async function refreshFileList(node) {
             }),
         });
         const data = await res.json();
+        if (node._seqListReq !== seq) return;   // superseded by a newer scan
         node._seqFiles = Array.isArray(data.files) ? data.files : [];
         node._seqPaths = Array.isArray(data.paths) ? data.paths : [];
     } catch (e) {
+        if (node._seqListReq !== seq) return;
         node._seqFiles = [];
         node._seqPaths = [];
     }
@@ -112,6 +120,7 @@ async function setThumb(img, path) {
     if (!path) {
         if (img._abort) { img._abort.abort(); img._abort = null; }
         img._path = "";
+        if (img._url) { URL.revokeObjectURL(img._url); img._url = null; }
         img.removeAttribute("src");
         return;
     }
@@ -142,32 +151,35 @@ async function setThumb(img, path) {
 function updatePreviews(node) {
     const paths = node._seqPaths || [];
     const total = paths.length;
-    const cur = node._seqCurImg, nxt = node._seqNextImg;
-    if (total === 0) {
-        clearTimeout(node._seqThumbTimer);
-        setThumb(cur, "");
-        setThumb(nxt, "");
-        if (node._seqCurLab) node._seqCurLab.textContent = "Next";
-        if (node._seqNextLab) node._seqNextLab.textContent = "Next + 1";
-        return;
-    }
-    const idx = findWidget(node, "index")?.value | 0;
-    const pos = ((idx % total) + total) % total;
-    const nextPos = (pos + 1) % total;
-    // Labels/titles update instantly; defer the thumbnail fetches a touch so
-    // rapid Prev/Next clicks coalesce into a single load of the final frame.
+    const curImg = node._seqCurrentImg, nxtImg = node._seqNextImg;
     const baseName = (p) => (p || "").split(/[\\/]/).pop();
-    if (node._seqCurImg) node._seqCurImg.title = baseName(paths[pos]);
-    if (node._seqNextImg) node._seqNextImg.title = baseName(paths[nextPos]);
-    if (node._seqCurLab) node._seqCurLab.textContent = "Next";
-    if (node._seqNextLab) {
-        node._seqNextLab.textContent = (total === 1) ? "Next + 1 (loops)" : "Next + 1";
+    // Left cell: the image the last run actually loaded (set from the
+    // execution message) — empty until something has been queued.
+    const curPath = node._seqCurrentPath || "";
+    if (curImg) curImg.title = baseName(curPath);
+    // Right cell: the image the next Queue will load.
+    let nextPath = "";
+    if (total > 0) {
+        const idx = findWidget(node, "index")?.value | 0;
+        const pos = ((idx % total) + total) % total;
+        nextPath = paths[pos];
     }
+    if (nxtImg) nxtImg.title = baseName(nextPath);
+    // Titles update instantly; defer the thumbnail fetches a touch so rapid
+    // Prev/Next clicks coalesce into a single load of the final frame.
     clearTimeout(node._seqThumbTimer);
     node._seqThumbTimer = setTimeout(() => {
-        setThumb(cur, paths[pos]);
-        setThumb(nxt, paths[nextPos]);
+        setThumb(curImg, curPath);
+        setThumb(nxtImg, nextPath);
     }, 80);
+}
+
+// Filenames go into innerHTML — escape them so a file named e.g.
+// "<img src=x onerror=…>.png" can't inject markup into the status line.
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
 }
 
 function updateStatus(node) {
@@ -195,10 +207,11 @@ function updateStatus(node) {
     const pct = total > 1 ? (pos / (total - 1)) * 100 : 100;
     el.style.background = "linear-gradient(to right, "
         + `rgba(60,110,180,0.55) ${pct}%, #1a1a1a ${pct}%)`;
+    const safe = escapeHtml(name);
     el.innerHTML =
         `<span style="color:#9cf;font-weight:bold">Next: ${pos + 1} / ${total}</span>`
         + `<span style="color:#888"> &middot; </span>`
-        + `<span style="color:#ddd" title="${name}">${name}</span>`;
+        + `<span style="color:#ddd" title="${safe}">${safe}</span>`;
 }
 
 function attachUI(node) {
@@ -312,21 +325,41 @@ function attachUI(node) {
     holdRow.appendChild(holdNextBtn);
     container.appendChild(holdRow);
 
-    // Rescan row.
+    // Auto-queue + Rescan row. "Queue all" queues the remaining images one
+    // after another — each run triggers the next — and stops by itself after
+    // the last file (unlike ComfyUI's auto-queue, which loops forever).
     const rescanRow = document.createElement("div");
     rescanRow.style.cssText = "display:flex; flex-direction:row; gap:5px;";
+    const autoBtn = makeButton("▶ Queue all", "auto", () => {
+        if (node._seqHold) return;
+        if (node._seqAuto) {            // acts as a Stop while running
+            node._seqAuto = false;
+            updateAutoUI(node);
+            return;
+        }
+        if ((node._seqPaths || []).length === 0) return;
+        node._seqAuto = true;
+        updateAutoUI(node);
+        app.queuePrompt(0, 1);
+    });
+    autoBtn.title = "Queue every remaining image, one run after another, "
+        + "then stop after the last file.";
     const rescanBtn = makeButton("↻ Rescan", "scan", () => {
         refreshFileList(node);
     });
+    rescanRow.appendChild(autoBtn);
     rescanRow.appendChild(rescanBtn);
     container.appendChild(rescanRow);
 
     node._seqBtns = {
         browse: browseBtn, holdLast: holdLastBtn, holdNext: holdNextBtn,
         reset: resetBtn, prev: prevBtn, next: nextBtn, rescan: rescanBtn,
+        auto: autoBtn,
     };
 
-    // Image previews of the current + next file, at the bottom.
+    // Image previews at the bottom: Current (what the last run loaded —
+    // empty until something has been queued) and Next (what the next Queue
+    // will load).
     const preview = document.createElement("div");
     preview.style.cssText = "display:flex; gap:6px; margin-top:2px;";
     const makeCell = (labelText) => {
@@ -346,15 +379,13 @@ function attachUI(node) {
         cell.appendChild(img);
         return { cell, lab, img };
     };
-    const curCell = makeCell("Next");
-    const nextCell = makeCell("Next + 1");
-    preview.appendChild(curCell.cell);
+    const currentCell = makeCell("Current");
+    const nextCell = makeCell("Next");
+    preview.appendChild(currentCell.cell);
     preview.appendChild(nextCell.cell);
     container.appendChild(preview);
-    node._seqCurImg = curCell.img;
+    node._seqCurrentImg = currentCell.img;
     node._seqNextImg = nextCell.img;
-    node._seqCurLab = curCell.lab;
-    node._seqNextLab = nextCell.lab;
 
     // Attach as a DOM widget so LiteGraph manages its layout. The panel is
     // status + browse + nav row + hold row + rescan row (~28px each) plus a
@@ -412,6 +443,7 @@ const THEMES = {
     browse: { fg: "#dde7ff", bg: "rgba(48,58,78,0.95)", border: "rgba(120,160,230,0.9)" },
     hold: { fg: "#ffe9c2", bg: "rgba(74,62,40,0.95)", border: "rgba(220,180,110,0.9)" },
     resume: { fg: "#d2f3e2", bg: "rgba(40,72,56,0.95)", border: "rgba(110,210,160,0.95)" },
+    auto: { fg: "#e6dcff", bg: "rgba(56,48,80,0.95)", border: "rgba(160,130,230,0.9)" },
     neutral: { fg: "#ccc", bg: "#2a2a2a", border: "#555" },
 };
 
@@ -447,6 +479,72 @@ function makeButton(label, kind, onClick) {
     return btn;
 }
 
+// --- Auto-queue ("Queue all"): after each successful run, queue the next
+//     image automatically until the LAST file in the folder has been done,
+//     then stop — no endless wrap-around like ComfyUI's built-in auto-queue.
+//     The stop decision uses the index/total the run *actually executed with*
+//     (reported via the node's ui message), not the frontend widget, so
+//     scrubbing mid-run can't confuse it.
+
+function seqNodes() {
+    return ((app.graph && app.graph._nodes) || [])
+        .filter((n) => n?.type === NODE_NAME);
+}
+
+function updateAutoUI(node) {
+    const btn = node._seqBtns?.auto;
+    if (!btn) return;
+    if (node._seqAuto) {
+        btn.textContent = "■ Stop queueing";
+        setButtonTheme(btn, "reset");
+    } else {
+        btn.textContent = "▶ Queue all";
+        setButtonTheme(btn, "auto");
+    }
+}
+
+function stopAllAuto() {
+    for (const n of seqNodes()) {
+        if (n._seqAuto) {
+            n._seqAuto = false;
+            updateAutoUI(n);
+        }
+    }
+}
+
+function installExecutionHooks() {
+    if (app._SeqLoaderExecHooksInstalled) return;
+    api.addEventListener("execution_success", () => {
+        let queueMore = false;
+        for (const n of seqNodes()) {
+            if (!n._seqAuto || !n._seqRanFlag) continue;
+            n._seqRanFlag = false;   // consumed — set again on the next run
+            const pos = n._seqLastExecPos, total = n._seqLastExecTotal;
+            if (typeof pos === "number" && typeof total === "number"
+                    && pos >= total - 1) {
+                n._seqAuto = false;  // last image just finished — we're done
+                updateAutoUI(n);
+                try {
+                    app.extensionManager?.toast?.add?.({
+                        severity: "success",
+                        summary: "Sequential Image Loader",
+                        detail: `Queue all finished — all ${total} images done.`,
+                        life: 5000,
+                    });
+                } catch (e) { /* toast API optional */ }
+            } else {
+                queueMore = true;
+            }
+        }
+        // One queue per completed run even if several nodes are auto-active.
+        if (queueMore) setTimeout(() => app.queuePrompt(0, 1), 0);
+    });
+    // Errors / user interrupt end the chain rather than ploughing on.
+    api.addEventListener("execution_error", stopAllAuto);
+    api.addEventListener("execution_interrupted", stopAllAuto);
+    app._SeqLoaderExecHooksInstalled = true;
+}
+
 // --- Hold (pause) state. "Hold last" freezes on the image you just got;
 //     "Hold next" freezes on the upcoming one. While held, the queue hook
 //     stops advancing (so every Queue re-emits the held frame) and all the
@@ -457,6 +555,10 @@ function enterHold(node, type) {
     const total = (node._seqPaths || []).length;
     if (!idxW || total === 0) return;
     const k = idxW.value | 0;
+    if (node._seqAuto) {            // holding a frame ends an auto-run
+        node._seqAuto = false;
+        updateAutoUI(node);
+    }
     node._seqResumeIndex = k;       // where the sequence continues after Resume
     node._seqHold = true;
     node._seqHoldType = type;
@@ -495,14 +597,14 @@ function updateHoldUI(node) {
         setButtonTheme(b.holdLast, "hold");
         setButtonTheme(b.holdNext, "hold");
         for (const key of ["browse", "reset", "prev", "next", "rescan",
-                           "holdLast", "holdNext"]) {
+                           "auto", "holdLast", "holdNext"]) {
             setEnabled(b[key], true);
         }
         return;
     }
 
     // Held: grey everything except the active button, which becomes Resume.
-    for (const key of ["browse", "reset", "prev", "next", "rescan"]) {
+    for (const key of ["browse", "reset", "prev", "next", "rescan", "auto"]) {
         setEnabled(b[key], false);
     }
     const active = type === "last" ? b.holdLast : b.holdNext;
@@ -673,6 +775,7 @@ app.registerExtension({
 
     async setup() {
         installQueueHook();
+        installExecutionHooks();
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -696,20 +799,47 @@ app.registerExtension({
             setTimeout(() => refreshFileList(this), 50);
         };
 
-        // Reflect what was actually loaded after a run.
+        // Reflect what was actually loaded after a run: feeds the "Current"
+        // preview and the auto-queue stop check.
         const origOnExecuted = nodeType.prototype.onExecuted;
         nodeType.prototype.onExecuted = function (message) {
             origOnExecuted?.apply(this, arguments);
             try {
                 const info = message?.seqloader?.[0];
-                if (info && this._seqStatusEl) {
-                    // Keep file count fresh; status recompute happens via hook.
-                    if (typeof info.total === "number" && this._seqFiles
-                        && this._seqFiles.length !== info.total) {
-                        refreshFileList(this);
-                    }
+                if (!info) return;
+                this._seqLastExecPos =
+                    typeof info.index === "number" ? info.index : null;
+                this._seqLastExecTotal =
+                    typeof info.total === "number" ? info.total : null;
+                this._seqRanFlag = true;   // this node ran in the active prompt
+                if (info.path) {
+                    this._seqCurrentPath = info.path;
+                } else if (typeof info.index === "number") {
+                    this._seqCurrentPath =
+                        (this._seqPaths || [])[info.index] || "";
                 }
+                // Keep file count fresh if the folder changed server-side.
+                if (typeof info.total === "number" && this._seqFiles
+                        && this._seqFiles.length !== info.total) {
+                    refreshFileList(this);
+                }
+                updateStatus(this);
             } catch (e) { /* ignore */ }
+        };
+
+        // Tidy up thumbnail blobs / in-flight fetches when a node is deleted.
+        const origOnRemoved = nodeType.prototype.onRemoved;
+        nodeType.prototype.onRemoved = function () {
+            clearTimeout(this._seqThumbTimer);
+            for (const img of [this._seqCurrentImg, this._seqNextImg]) {
+                if (!img) continue;
+                if (img._abort) {
+                    try { img._abort.abort(); } catch (e) { /* ignore */ }
+                    img._abort = null;
+                }
+                if (img._url) { URL.revokeObjectURL(img._url); img._url = null; }
+            }
+            origOnRemoved?.apply(this, arguments);
         };
     },
 });

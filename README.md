@@ -31,6 +31,7 @@ Drop the node on the canvas, point it at a folder, wire **image** (and **mask** 
 The usual way to run a workflow over a folder of images is to swap the file in **Load Image** by hand between every run, or to build a batch-loader contraption that fires everything at once and floods your VRAM. This sits in the middle: it's a normal single-image loader that just **remembers where it got to** and steps forward each time you press Queue.
 
 - **One image per Queue.** Process a folder at your own pace — tweak settings between runs, watch each result, stop whenever.
+- **▶ Queue all** — auto-queue the remaining images one run after another, and **stop automatically after the last file**. Unlike ComfyUI's built-in auto-queue (which loops forever), this knows where the folder ends. Click again (■ Stop queueing) to bail out early; errors or an interrupt also stop the chain.
 - **📁 Browse for folder** — a built-in folder picker (browses the ComfyUI server's filesystem) so you don't have to hand-type paths. Or just paste a path.
 - **Natural sort order.** `frame2.png` comes before `frame10.png`, the way you'd expect — not `frame10` before `frame2`.
 - **⏮ Reset to start** rewinds to the first image. **‹ Prev / Next ›** step the position without queuing. **↻ Rescan** re-reads the folder after you add or remove files.
@@ -40,7 +41,7 @@ The usual way to run a workflow over a folder of images is to swap the file in *
 - **Hold (pause) on a frame** — ⏸ Hold last (the image you just got) or ⏸ Hold next (the upcoming one) freezes the sequence so every Queue re-emits that same frame. Handy for locking onto one image while you tweak the rest of the graph. Click **▶ Resume** to carry on where you left off.
 - **Remembers your last folder.** A freshly-added node pre-fills with the folder you last used, so you're not re-typing paths all day.
 - **Live status line** shows exactly where you are: `Next: 3 / 240 · frame_003.png`.
-- **Thumbnail previews** of the next two images (**Next** and **Next + 1**) at the bottom of the node, so you can see what's coming before you Queue.
+- **Thumbnail previews** at the bottom of the node: **Current** (the image the last run actually loaded — empty until you've queued something) and **Next** (the one your next Queue will load).
 
 ## Install
 
@@ -64,7 +65,9 @@ Restart ComfyUI. No extra Python dependencies — it uses Pillow and torch, whic
 
 The status line shows `Next: N / TOTAL · filename` and doubles as a **scrub bar** — click it to jump anywhere in the folder, or click-drag to scrub. Hit **⏮ Reset to start** any time to begin again from the first file.
 
-At the bottom of the node, two thumbnails show what's coming: **Next** (the image that loads on your next Queue) and **Next + 1** (the one after it, looping back to the start at the end).
+At the bottom of the node, two thumbnails keep you oriented: **Current** (what the last run loaded — empty until you've queued something) and **Next** (what your next Queue will load).
+
+Want the whole folder done in one go? Hit **▶ Queue all** — it queues the next image as each run finishes and stops by itself after the last file.
 
 ## Controls
 
@@ -78,9 +81,11 @@ At the bottom of the node, two thumbnails show what's coming: **Next** (the imag
 | **⏮ Reset to start** | Rewind to the first image in the current order. |
 | **‹ Prev / Next ›** | Step the position back/forward **without** queuing. |
 | **Status / scrub bar** | Shows `Next: N / TOTAL · filename`. Click to jump anywhere in the folder, or click-drag left/right to scrub; the fill shows your position. |
-| **⏸ Hold last** | Freeze on the image you just loaded — every Queue re-emits it. Click **▶ Resume** to continue. |
-| **⏸ Hold next** | Freeze on the upcoming image — every Queue re-emits it. Click **▶ Resume** to continue. |
+| **⏸ Hold last** | Freeze on the image you just loaded — every Queue re-emits it. Click **▶ Resume** to continue. (Also cancels a running Queue all.) |
+| **⏸ Hold next** | Freeze on the upcoming image — every Queue re-emits it. Click **▶ Resume** to continue. (Also cancels a running Queue all.) |
+| **▶ Queue all** | Queue the remaining images one run after another, stopping automatically after the last file. Becomes **■ Stop queueing** while active; errors or Cancel also stop the chain. Starts from the current position — hit **⏮ Reset** first for the whole folder. |
 | **↻ Rescan** | Re-read the folder (after adding/removing files). |
+| **Current / Next previews** | Thumbnails at the bottom: what the last run loaded (empty until you queue something) and what the next Queue will load. |
 
 While a hold is active, the other buttons grey out; **▶ Resume** restores the sequence from where it was about to go.
 
@@ -101,7 +106,8 @@ ComfyUI only re-runs a node when one of its inputs changes, so a hidden `index` 
 ## Honest limits
 
 - **Position is per-session widget state.** It's stored on the node and saved with your workflow JSON, so reopening a graph resumes where you left off — but external tools that re-run the workflow headless start from whatever index was saved.
-- **One queue = one image.** This is a deliberately manual, paced loader. If you want every image processed in a single Queue, that's a different (batch) node.
+- **One queue = one image.** Each run still processes exactly one file — **▶ Queue all** just presses Queue for you until the folder is done. If you want every image in a single run as a batch tensor, that's a different (batch) node.
+- **Queue all runs from where you are.** It continues from the current position to the last file — it doesn't rewind first. Hit **⏮ Reset to start** before Queue all to do the whole folder.
 - **Changing filetype mid-run keeps the index number.** If the new type has fewer files it wraps via modulo — hit **Reset** after switching type to start cleanly from the first file of the new set.
 - **Last-folder memory is per-browser.** The remembered folder lives in the browser's localStorage, so it's per-machine/per-browser and only pre-fills *new* nodes — a node loaded from a saved workflow keeps its own saved path.
 

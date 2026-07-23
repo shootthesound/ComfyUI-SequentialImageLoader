@@ -170,6 +170,7 @@ class SequentialImageLoader:
         return {
             "ui": {"seqloader": [{
                 "filename": filename,
+                "path": path,
                 "index": pos,
                 "total": total,
             }]},

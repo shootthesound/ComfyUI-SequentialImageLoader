@@ -1,7 +1,7 @@
 [project]
 name = "sequential-image-loader"
 description = "Load a folder of images one at a time, in order — a fresh image on every Queue press. A paced, single-image folder sequencer for batch-processing frames or photos through any ComfyUI workflow."
-version = "1.2.0"
+version = "1.3.0"
 license = { file = "LICENSE" }
 readme = "README.md"
 dependencies = []
