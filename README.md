@@ -21,7 +21,7 @@
    │  └──────────────────────────────────┘ │
    └───────────────┬──────────────────────┘
                    │
-        image · mask · filename · index · total
+   image · mask · filename · index · total · file_path
 ```
 
 Drop the node on the canvas, point it at a folder, wire **image** (and **mask** if you need it) into your graph, and Queue. Each Queue loads the next image; when it reaches the end it loops back to the start. That's the whole idea.
@@ -98,6 +98,7 @@ While a hold is active, the other buttons grey out; **▶ Resume** restores the 
 | `filename` | STRING | basename of the loaded file |
 | `index` | INT | 0-based position used this run |
 | `total` | INT | number of matching files found |
+| `file_path` | STRING | absolute path of the loaded file (e.g. `C:\frames\frame_003.png`) |
 
 ## How "advance per Queue" works
 

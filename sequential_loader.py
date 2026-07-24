@@ -138,8 +138,10 @@ class SequentialImageLoader:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "INT")
-    RETURN_NAMES = ("image", "mask", "filename", "index", "total")
+    # file_path is declared last (newest output) so links in older saved
+    # workflows keep their slot positions.
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "INT", "STRING")
+    RETURN_NAMES = ("image", "mask", "filename", "index", "total", "file_path")
     FUNCTION = "load"
     CATEGORY = "image"
 
@@ -162,7 +164,7 @@ class SequentialImageLoader:
             )
 
         pos = int(index) % total           # wrap around at the end
-        path = files[pos]
+        path = os.path.abspath(files[pos])
         filename = os.path.basename(path)
 
         image, mask = _load_image_tensors(path)
@@ -174,7 +176,7 @@ class SequentialImageLoader:
                 "index": pos,
                 "total": total,
             }]},
-            "result": (image, mask, filename, pos, total),
+            "result": (image, mask, filename, pos, total, path),
         }
 
 
